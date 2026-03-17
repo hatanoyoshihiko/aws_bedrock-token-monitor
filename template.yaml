@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Bedrock トークン使用量モニター。
+  トークン合計数（入力＋出力）が閾値を超えた場合に SNS 経由で通知します。
+
+Parameters:
+  SnsTopicArn:
+    Type: String
+    Description: 通知先の既存 SNS トピックの ARN。
+
+  TokenThreshold:
+    Type: Number
+    Default: 10000
+    Description: アラームを発火させるトークン合計数の閾値。
+
+  EvaluationPeriods:
+    Type: Number
+    Default: 2
+    Description: 評価する連続期間数（2 × 5分 = 10分）。
+
+  Period:
+    Type: Number
+    Default: 300
+    Description: 各評価期間の長さ（秒）。300 = 5分。
+
+  ModelId:
+    Type: String
+    Default: "jp.anthropic.claude-sonnet-4-6"
+    Description: 監視対象の Bedrock モデル ID。
+
+Resources:
+  BedrockTokenAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: bedrock-token-usage-alarm
+      AlarmDescription: !Sub >
+        Bedrock トークン使用量（入力＋出力）の合計が評価期間内に
+        ${TokenThreshold} を超えた場合のアラーム。
+      ActionsEnabled: true
+      AlarmActions:
+        - !Ref SnsTopicArn
+      OKActions:
+        - !Ref SnsTopicArn
+      EvaluationPeriods: !Ref EvaluationPeriods
+      DatapointsToAlarm: !Ref EvaluationPeriods
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: !Ref TokenThreshold
+      TreatMissingData: notBreaching
+      Metrics:
+        - Id: input_tokens
+          MetricStat:
+            Metric:
+              Namespace: AWS/Bedrock
+              MetricName: InputTokenCount
+              Dimensions:
+                - Name: ModelId
+                  Value: !Ref ModelId
+            Period: !Ref Period
+            Stat: Sum
+          ReturnData: false
+        - Id: output_tokens
+          MetricStat:
+            Metric:
+              Namespace: AWS/Bedrock
+              MetricName: OutputTokenCount
+              Dimensions:
+                - Name: ModelId
+                  Value: !Ref ModelId
+            Period: !Ref Period
+            Stat: Sum
+          ReturnData: false
+        - Id: total_tokens
+          Expression: input_tokens + output_tokens
+          Label: TotalTokenCount
+          ReturnData: true
+
+Outputs:
+  AlarmName:
+    Description: CloudWatch アラームの名前。
+    Value: !Ref BedrockTokenAlarm
